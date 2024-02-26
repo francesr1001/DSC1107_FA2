@@ -1,0 +1,535 @@
+---
+title: "DSC_1107_FA2"
+author: "Frances Aneth Rosales"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    css: FA2.css
+    code_folding: hide
+---
+<style>
+  body {
+    text-align: justify;
+  }
+</style>
+
+
+<br>
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+<br><br>
+
+<h3> Applying the Packages First </h3>
+
+```{r}
+library(tidyverse) 
+library(ggrepel)
+library(kableExtra) 
+library(cowplot)
+```
+
+<br><br><br>
+<b>
+
+# 1 Wrangle (35 points for correctness; 5 points for presentation)
+
+</b>
+
+<h1> 1.1 Import (5 points) </h1>
+<h3>
+<li>  Import the data into a tibble called mlb_raw and print it. </li>
+ </h3>
+
+```{r files import}
+load("ml_pay.rdata")
+library(tibble)
+mlb_raw <- as_tibble(ml_pay)
+print(mlb_raw)
+View(mlb_raw)
+```
+
+
+<br><br>
+<h3>
+<li>  How many rows and columns does the data have?  </li>
+</h3>
+
+```{r rowcol}
+mlb_rows <- nrow(mlb_raw)
+mlb_columns <- ncol(mlb_raw)
+
+cat("Number of rows of ML Pay:", mlb_rows, "\n")
+cat("Number of columns of ML Pay:", mlb_columns, "\n")
+
+```
+
+<br><br>
+<h3>
+<li> Does this match up with the data description given above?</li>
+</h3>
+<h3> 
+
+In accordance of the data that I imported into the table with the given  data description, it is indeed similar data as assumed.
+
+Therefore, we can now analyze the data of Major League Baseball (MLB) teams' payroll.
+
+</h3>
+
+<br><br>
+
+<h1> 1.2 Tidy (15 points) </h1>
+
+<h4> 
+We need to change the variables containing the following <br>
+mlb_aggregate c: aggregate data<br>
+mlb_yearly: year-by-year data<br>
+mlb_total: columns named team,payroll_aggregate, pct_wins_aggregate<br>
+mlb_yearly: contain columns named team, year, payroll, pct_wins, num_wins<br>
+
+</h4>
+
+<h5> mlb_aggregate tibble </h5>
+
+
+```{r the_mlb_aggregate}
+library(tidyverse)
+mlb_raw <- mlb_raw %>%
+  rename_all(str_to_lower) %>%  
+  rename(team = team.name.2014, avgwin = avgwin)  
+
+mlb_raw_aggre <- mlb_raw %>%
+  rename_all(str_to_lower) %>% 
+  rename( the_payroll = payroll )
+
+
+
+mlb_aggregate <- mlb_raw_aggre %>%
+  select(team, starts_with("the_payroll"), matches("^X.*\\.pct$")) %>%
+  rename_with(~ "payroll_aggregate", starts_with("the_payroll")) %>%
+  mutate(pct_wins_aggregate = rowMeans(select(., matches("^X.*\\.pct$")))) %>%
+  select(team, starts_with("payroll_aggregate"), pct_wins_aggregate)
+print(mlb_aggregate)
+
+
+```
+
+
+<br><br>
+<b>
+
+<h3> mlb_yearly tibble </h3>
+
+</b>
+
+```{r the_mlb_yearly}
+
+mlb_raw_yearly <- mlb_raw %>%
+  rename_all(str_to_lower) %>%  
+  rename_with(~ paste0("pct_wins_", str_remove(., "^X")), matches("^X.*\\.pct$")) %>%
+  rename(the_payroll = payroll)
+  
+mlb_yearly <- mlb_raw_yearly %>%
+  select(team, the_payroll, starts_with("p"), starts_with("x"), starts_with("wins_aggregate")) %>%
+  rename_with(
+    ~ str_replace(., "^p(\\d+)$", "payroll_\\1"),
+    starts_with("p")
+  ) %>%
+  rename_with(
+    ~ str_replace(., "^x(\\d+)$", "num_wins_\\1"),
+    starts_with("x")
+  ) %>%
+  rename_with(
+    ~ str_replace(., "^wins_aggregate", "wins_aggregate"),
+    starts_with("wins_aggregate")
+  )
+print(mlb_yearly)
+
+```
+<br>
+```{r rowcossl}
+mlb_aggregaterows <- nrow(mlb_aggregate)
+mlb_yearlyrows <- nrow(mlb_yearly)
+
+cat("Number of rows of mlb_aggregate:", mlb_aggregaterows, "\n")
+cat("Number of rows of mlb_yearly  :", mlb_yearlyrows, "\n")
+
+```
+<br><br>
+
+
+<h1> 1.3 Quality control (15 points) </h1>
+<b>
+<h3> mlb_aggregate_computed tibble </h3>
+</b>
+
+
+```{r the_mlb_aggregate_computed}
+
+library(tidyverse)
+mlb_aggregate_computed <- mlb_yearly %>%
+  group_by(team) %>%
+  summarise(
+    payroll_aggregate_computed = sum(across(starts_with("payroll_")), na.rm = TRUE),  # Total team payroll
+    pct_wins_aggregate_computed = mean(sum(across(starts_with("pct_wins_x")), na.rm = TRUE), na.rm = TRUE) / 17  ) 
+
+mlb_aggregate_joined <- mlb_aggregate %>%
+  left_join(mlb_aggregate_computed, by = "team")
+print(mlb_aggregate_joined)
+
+
+
+```
+
+<br><br>
+
+<h1> <b> Create Scatter Plots </b> </h1> 
+```{r scatter plots}
+
+mlb_aggregate_joined$team <- as.character(mlb_aggregate_joined$team)
+
+library(gridExtra)
+
+library(ggplot2)
+
+plot_payroll <- ggplot(mlb_aggregate_joined, aes(x = payroll_aggregate, y = payroll_aggregate_computed)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+  labs(title = "Scatter Plot of Payroll Aggregate",
+       x = "Payroll Aggregate",
+       y = "Computed Payroll Aggregate")
+
+
+plot_pct_wins <- ggplot(mlb_aggregate_joined, aes(x = pct_wins_aggregate, y = pct_wins_aggregate_computed)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "blue") +
+  labs(title = "Scatter Plot of Win Percentage Aggregate",
+       x = "Win Percentage Aggregate",
+       y = "Computed Win Percentage Aggregate")
+library(grid)
+
+common_title <- textGrob("Figure 1.1", gp = gpar(fontsize = 12, fontface = "bold"))
+
+grid.arrange(
+  arrangeGrob(plot_payroll, plot_pct_wins, ncol = 2),
+  common_title,
+  heights = c(4, 0.5)  # Adjust the heights as needed
+)
+
+```
+<h4> Using function ggplot, getting the plot of <b> payroll_aggregate_computed versus payroll_aggregate </b> and <b> pct_wins_aggregate_computed versus pct_wins_aggregate </b>, we have concluded the plotting shows a linear model which pertains into a proportion increment of data. This will also that the data is close to similar to each other as desired.</h4>
+
+
+
+<br><br><br>
+<b>
+
+# 2 Explore (50 points for correctness; 10 points for presentation) 
+
+</b>
+<h4>Now that the data are in tidy format, we can explore them by producing visualizations and summary statistics.<h4>
+
+<h1> 2.1 Payroll across years(15 points) </h1>
+
+<h3>
+<li>  Plot payroll as a function of year for each of the 30 teams, faceting the plot by team and adding a red dashed horizontal line for the mean payroll across years of each team. </li>
+ </h3>
+
+
+```{r payroll_plot}
+library(ggplot2)
+
+the_payroll_plot_now <-mlb_yearly %>%
+  gather(key = "year", value = "payroll", starts_with("payroll_")) %>%
+  ggplot(aes(x = as.numeric(sub("payroll_", "", year)), y = payroll)) +
+  geom_point() +
+  facet_wrap(~ team, scales = "free_y") +
+  geom_hline(aes(yintercept = mean(payroll, na.rm = TRUE)), linetype = "dashed", color = "red") +
+  labs(title = "Payroll as a Function of Year for Each Team",
+       x = "Year",
+       y = "Payroll") +
+  theme_minimal()
+
+
+library(grid)
+
+payroll_plot_title <- textGrob("Figure 1.2", gp = gpar(fontsize = 12, fontface = "bold"))
+
+grid.arrange( the_payroll_plot_now,
+  payroll_plot_title,
+  heights = c(4, 0.5) 
+)
+
+```
+
+<h4> Using function ggplot and gather, getting the plot of payroll as a function of year for each of the 30 teams. We can now analyze together the plot of payroll of each team over the years of 1998 to 2014. 
+We can also say that the mean of the payroll of each team are not equal together as the red horizontal line varied for each team.</h4>
+
+<br><br>
+
+
+<h3>
+<li>  Using dplyr, identify the three teams with the greatest payroll_aggregate_computed, and print a table of these teams and their payroll_aggregate_computed. </li>
+ </h3>
+
+```{r dplyr_greteast_payroll_aggregate_computed}
+
+library(dplyr)
+
+
+top_teams_table <- mlb_aggregate_joined %>%
+  top_n(3, payroll_aggregate_computed) %>%
+  select(team, payroll_aggregate_computed)
+
+print(top_teams_table)
+```
+
+<br><br>
+
+
+<h3>
+<li>  Using dplyr, identify the three teams with the greatest percentage increase in payroll from 1998 to 2014 (call it pct_increase), and print a table of these teams along with pct_increase as well as their payroll figures from
+1998 and 2014.
+  </li>
+ </h3>
+
+```{r pct_increase_year}
+library(dplyr)
+
+mlb_yearly_increase <- mlb_yearly %>%
+  select(team, matches("^payroll_")) %>%
+  rename_with(~ gsub("^payroll_", "", .), matches("^payroll_"))
+
+mlb_top_teams <- mlb_yearly_increase %>%
+  group_by(team) %>%
+  summarise(
+    payroll_1998 = first(`1998`),
+    payroll_2014 = first(`2014`),
+    pct_increase = ((payroll_2014 - payroll_1998) / payroll_1998) * 100
+  ) %>%
+  arrange(desc(pct_increase)) %>%
+  head(3)
+
+print(mlb_top_teams)
+
+```
+
+<h2>
+<b> How are the metrics payroll_aggregate_computed and pct_increase reflected in the plot above, and how can
+we see that the two sets of teams identified above are the top three in terms of these metrics?
+</b>
+</h2>
+<h4> 
+As mentioned in our initial plotting of payroll of each teams are distinct to each other as its horizontal line varied to each other, which implicates a different mean of payrolls.
+<br>
+The <b> Boston Red Sox, Los Angeles Dodgers, and New York Yankees </b> are identified using dplyr as the teams with the <b> highest payroll_aggregate_computed values</b>, characterized by high and varying payroll figures over the years.
+<br>
+While, The pct_increase metric shows the percentage increase in payroll from 1998 to 2014, with the <b>Washington Nationals, Detroit Tigers, and Philadelphia Phillies </b> showing <b>the greatest percentage increases </b>, indicating substantial growth in payroll over the analyzed period.
+
+
+The plot shows how team payroll fluctuates over time, with teams with higher payroll aggregate values or significant pct_increase values easily identified. This visual representation complements quantitative analysis using dplyr, providing a more comprehensive understanding of payroll dynamics in Major League Baseball, as teams with wider spreads identified.<br>
+Additionally, we have shown that the top 3 of high payroll over the years ( highes payroll_aggregate_computed) is different with top 3 of the greatest percentage increases of payroll, thus as assumed the an implication of different mean of payrolls.
+
+</h4>
+
+<br><br>
+
+<h1> 2.2 Win percentage across years (15 points) </h1>
+
+<h3>
+<li>  Plot pct_wins as a function of year for each of the 30 teams, faceting the plot by team and adding a red dashed horizontal line for the average pct_wins across years of each team. </li>
+ </h3>
+
+```{r pct_wins_acc_year}
+
+library(ggplot2)
+
+pct_wins_acc_year <- mlb_yearly %>%
+  pivot_longer(cols = starts_with("pct_wins_"), names_to = "year", values_to = "pct_wins") %>%
+  mutate(year = as.numeric(str_extract(year, "\\d+"))) %>%
+  ggplot(aes(x = year, y = pct_wins)) +
+  geom_point() +
+  geom_hline(aes(yintercept = mean(pct_wins, na.rm = TRUE)), linetype = "dashed", color = "red") +
+  facet_wrap(~team, scales = "free_y") +
+  labs(title = "Pct Wins Across Years for Each Team",
+       x = "Year",
+       y = "Pct Wins") +
+  theme_minimal()
+
+pct_wins_acc_year_title <- textGrob("Figure 1.3", gp = gpar(fontsize = 12, fontface = "bold"))
+grid.arrange( pct_wins_acc_year,
+  pct_wins_acc_year_title,
+  heights = c(4, 0.5) 
+)
+
+```
+
+
+<br><br>
+
+
+<h3>
+<li>  Using dplyr, identify the three teams with the greatest pct_wins_aggregate_computed and print a table of these teams along with pct_wins_aggregate_computed. </li>
+ </h3>
+
+
+```{r winper_4}
+library(ggplot2)
+thee_top_teams <- mlb_aggregate_joined %>%
+  top_n(3, pct_wins_aggregate_computed) %>%
+  select(team, pct_wins_aggregate_computed)
+print(thee_top_teams)
+```
+
+<br><br>
+
+
+<h3>
+<li>  Using dplyr, identify the three teams with the most erratic pct_wins across years(as measured by the standard deviation, call it pct_wins_sd) and print a table of these teams along with pct_wins_sd. </li>
+ </h3>
+
+
+```{r winper_5}
+top_erratic_teams <- mlb_yearly %>%
+  gather(key = "year", value = "pct_wins", starts_with("pct_wins_x")) %>%
+  group_by(team) %>%
+  summarise(pct_wins_sd = sd(pct_wins, na.rm = TRUE)) %>%
+  top_n(3, pct_wins_sd) %>%
+  select(team, pct_wins_sd)
+
+print(top_erratic_teams)
+
+```
+
+<br><br>
+
+Re-PLOT of TOP TEAMS
+
+```{r winper_6}
+selected_teams <- c("Atlanta Braves", "Boston Red Sox", "New York Yankees","Detroit Tigers","Houston Astros", "Seattle Mariners")
+
+selected_teams_plot <- mlb_yearly %>%
+  pivot_longer(cols = starts_with("pct_wins_"), names_to = "year", values_to = "pct_wins") %>%
+  mutate(year = as.numeric(str_extract(year, "\\d+"))) %>%
+  filter(team %in% selected_teams) %>%
+  ggplot(aes(x = year, y = pct_wins)) +
+  geom_point() +
+  geom_hline(aes(yintercept = mean(pct_wins, na.rm = TRUE)), linetype = "dashed", color = "red") +
+  facet_wrap(~team, scales = "free_y") +
+  labs(title = "Pct Wins Across Years for Selected Teams",
+       x = "Year",
+       y = "Pct Wins") +
+  theme_minimal()
+
+selected_teams_title <- textGrob("Plot of Top (pct_wins_sd) and (pct_wins_aggregate_computed)", gp = gpar(fontsize = 12, fontface = "bold"))
+
+grid.arrange(
+  selected_teams_plot,
+  selected_teams_title,
+  heights = c(4, 0.5)
+)
+```
+
+
+<h2>
+<b> How are the metrics pct_wins_aggregate_computed and pct_wins_sd reflected in the plot above, and how can
+we see that the two sets of teams identified above are the top three in terms of these metrics?
+
+</h2>
+</b>
+
+<h4> 
+<br>
+The <b>"Atlanta Braves", "Boston Red Sox", "New York Yankees"</b> are identified using dplyr as the teams with the <b> highest pct_wins_aggregate_computed values</b>, characterized by high and varying wins figures over the years.
+<br>
+While, The pct_wins_sd metric shows the standard deviation in percentage win from 1998 to 2014, with the <b>"Detroit Tigers","Houston Astros", "Seattle Mariners" </b> showing <b>the greatest standard deviation in percentage win </b>. 
+
+As we plot the Top 3 teams of 2 different characteristic, we can see as shown that the plotting implicates a plotting <b> higher than 0.50 </p>. Thus, indeed we can see why the team top the rank.
+</h4>
+<br><br>
+
+<h1> 2.3 Win percentage versus payroll (15 points) <h1>
+
+<h3>
+<li> Create a scatter plot of pct_wins versus payroll based on the aggregated data, labeling each point with the team name using geom_text_repel from the ggrepel package and adding the least squares line.
+</li>
+ </h3>
+
+```{r winper_6_7}
+
+library(ggplot2)
+library(ggrepel)
+
+mlb_aggregate <- mlb_raw_aggre %>%
+  select(team, starts_with("the_payroll"), matches("^X.*\\.pct$")) %>%
+  rename_with(~ "payroll_aggregate", starts_with("the_payroll")) %>%
+  mutate(pct_wins_aggregate = rowMeans(select(., matches("^X.*\\.pct$")))) %>%
+  select(team, starts_with("payroll_aggregate"), pct_wins_aggregate)
+
+scatter_plot <- ggplot(mlb_aggregate, aes(x = payroll_aggregate, y = pct_wins_aggregate)) +
+  geom_point() +
+  geom_text_repel(aes(label = team), box.padding = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  
+  labs(title = "Scatter Plot of pct_wins_aggregate vs. payroll_aggregate",
+       x = "Payroll Aggregate",
+       y = "Pct Wins Aggregate") +
+  theme_minimal()
+
+
+scatter_acc_year_title <- textGrob("Figure 1.4", gp = gpar(fontsize = 12, fontface = "bold"))
+grid.arrange( scatter_plot,
+  scatter_acc_year_title,
+  heights = c(4, 0.5) 
+)
+
+
+```
+
+<h2>
+<b> Isthe relationship between payroll and pct_wins positive or negative? Isthis what you would expect, and why?
+</h2>
+</b>
+<h4> 
+The relationship between payroll and pct_wins is posssitive as shown in the plot. <br> We can see that the plotting in Figure 1.4 that the New York Yankees, Boston Red Sox, and Los Angeles Dodgers continuously increases as Payroll and Pct_Win proportionally increases. Just like what we have on the Top 3 in our <b> payroll_aggregate_computed </b> which are also  New York Yankees, Boston Red Sox, and Los Angeles Dodgers. <br>
+However, we cannot really say that there's a relationship between with the payroll and pct_wins only if we use more tool like a Simple Linear Model, etc., to see if there is a relationship that would make the data indeed proportionally into each other.
+
+</h4>
+<br><br>
+
+
+<h1> 2.4 Team efficiency (5 points) </h1>
+
+<h3>
+<li> Using dplyr, identify the three teams with the greatest efficiency, and print a table of these teams
+along with their efficiency, as well as their pct_wins_aggregate_computed and payroll_aggregate_computed.
+</li>
+ </h3>
+
+
+```{r winper_7}
+mlb_aggregate_computedz <- mlb_aggregate_joined %>%
+  group_by(team) %>%
+  summarise(
+    payroll_aggregate_computed = sum(across(starts_with("payroll_aggregate_")), na.rm = TRUE), 
+    pct_wins_aggregate_computed = mean(sum(across(starts_with("pct_wins_aggregate_")), na.rm = TRUE), na.rm = TRUE) / 17, 
+    efficiency = pct_wins_aggregate_computed / payroll_aggregate_computed  
+  ) 
+
+top_efficiency_teams <- mlb_aggregate_computedz %>%
+  top_n(3, wt = efficiency) %>%
+  arrange(desc(efficiency))
+
+print(top_efficiency_teams)
+
+
+```
+
+<h2>
+<b> In what sense do these three teams appear efficient in the previous plot?
+</h2>
+</b>
+<h4>
+In accordance with our previous plot Figure 1.4, to say that a team is efficient, the quotient of pct_wins_aggregate_computed divided by payroll_aggregate_computed would be big. In other words, their payroll might not be big however, the percentage of them winning is great. <br>
+As seen in Figure 1.4 again, the most obvious team in the plot is <b> Oakland Athletics </b> as the x-axis (Payroll) of team may be low, however the y-axis (Percentafe Wins) is high. In which can appear as well into our Top Three Teams which are Miami Marlins, Oakland Athletics, and lastly, Tampa Bay Rays.
+</h4>
+
